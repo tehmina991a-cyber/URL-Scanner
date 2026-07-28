@@ -1,132 +1,112 @@
-// Vercel serverless function — same job as server.js's /api/scan route,
-// but written as a standalone function (no Express) since that's what
-// Vercel expects for files under /api. Deployed, this becomes:
-//   POST https://<your-project>.vercel.app/api/scan
+// POST /api/scan   { url }
+//
+// Returns fast, always:
+//  - { status: 'completed', cached: true,  urlId, data }   — already known to VirusTotal
+//  - { status: 'queued',    urlId, analysisId }              — brand-new URL, analysis kicked off;
+//                                                               poll /api/status to get the result
+//
+// This never blocks for the ~15-60s a fresh analysis can take — that's
+// the difference from a naive implementation, and it's what keeps the
+// UI feeling instant instead of frozen on a spinner.
 
-const VT_BASE = 'https://www.virustotal.com/api/v3';
-
-function b64url(str) {
-  return Buffer.from(str, 'utf8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function vt(path, apiKey, opts = {}) {
-  return fetch(VT_BASE + path, {
-    method: opts.method || 'GET',
-    headers: Object.assign({ 'x-apikey': apiKey }, opts.headers || {}),
-    body: opts.body
-  });
-}
+const {
+  b64url,
+  vt,
+  validateUrl,
+  checkGlobalLimit,
+  recordGlobalHit,
+  checkIpLimit,
+  recordIpHit,
+  getClientIp,
+  setCommonHeaders
+} = require('./_lib');
 
 module.exports = async (req, res) => {
+  setCommonHeaders(res);
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
     return;
   }
 
-  const { apiKey, url } = req.body || {};
-  if (!apiKey || !url) {
-    res.status(400).json({ error: 'MISSING_FIELDS', message: 'apiKey and url are both required.' });
+  const body = req.body || {};
+  const check = validateUrl(body.url);
+  if (!check.ok) {
+    res.status(400).json({ error: 'INVALID_URL', message: check.message });
+    return;
+  }
+  const url = check.url;
+
+  const ip = getClientIp(req);
+  const ipGate = checkIpLimit(ip);
+  if (!ipGate.ok) {
+    res.status(429).json({
+      error: 'RATE_LIMIT_IP',
+      message: 'You\u2019ve hit the per-visitor scan limit for this hour. Try again shortly.',
+      retryAfter: ipGate.retryAfter
+    });
     return;
   }
 
   const urlId = b64url(url);
 
   try {
-    const existing = await vt('/urls/' + urlId, apiKey);
+    // Always try the cached lookup first — it's cheap and, if VirusTotal
+    // already has a verdict, the visitor gets a full report in well
+    // under a second with no quota spent on submission.
+    const existing = await vt('/urls/' + urlId);
     if (existing.status === 401) {
-      res.status(401).json({ error: 'AUTH', message: 'VirusTotal rejected this API key.' });
+      res.status(500).json({ error: 'SERVER_KEY_REJECTED', message: 'The server\u2019s VirusTotal key was rejected. The site owner needs to check VT_API_KEY.' });
       return;
     }
     if (existing.status === 200) {
       const json = await existing.json();
-      res.status(200).json({ cached: true, urlId, data: json.data });
+      res.status(200).json({ status: 'completed', cached: true, urlId, data: json.data });
       return;
     }
 
-    // No existing record — submit a fresh scan.
-    const submitted = await vt('/urls', apiKey, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'url=' + encodeURIComponent(url)
-    });
-    if (submitted.status === 401) {
-      res.status(401).json({ error: 'AUTH', message: 'VirusTotal rejected this API key.' });
-      return;
-    }
-    if (submitted.status === 429) {
-      res.status(429).json({ error: 'RATE_LIMIT', message: 'VirusTotal rate limit hit while submitting the URL.' });
-      return;
-    }
-    if (!submitted.ok) {
-      res.status(502).json({ error: 'HTTP_' + submitted.status });
-      return;
-    }
-    const submittedJson = await submitted.json();
-    const analysisId = submittedJson.data.id;
-
-    // Poll for completion — up to ~60s, spaced to respect the public
-    // API's 4-requests-per-minute limit. Vercel's default function
-    // duration comfortably covers this (see vercel.json for the
-    // explicit maxDuration set as a safety net on older accounts).
-    let completed = null;
-    for (let i = 0; i < 4; i++) {
-      await sleep(15000);
-      const analysisRes = await vt('/analyses/' + analysisId, apiKey);
-      if (analysisRes.status === 401) {
-        res.status(401).json({ error: 'AUTH', message: 'VirusTotal rejected this API key.' });
-        return;
-      }
-      if (analysisRes.status === 429) {
-        res.status(429).json({ error: 'RATE_LIMIT', message: 'VirusTotal rate limit hit while polling for results.' });
-        return;
-      }
-      if (!analysisRes.ok) {
-        res.status(502).json({ error: 'HTTP_' + analysisRes.status });
-        return;
-      }
-      const analysisJson = await analysisRes.json();
-      if (analysisJson.data.attributes.status === 'completed') {
-        completed = analysisJson;
-        break;
-      }
-    }
-
-    if (!completed) {
-      res.status(504).json({
-        error: 'TIMEOUT',
-        message: 'Still queued on VirusTotal after ~60s. Try again shortly.'
+    // Not cached — this will cost a submission call, so gate it globally.
+    const globalGate = checkGlobalLimit();
+    if (!globalGate.ok) {
+      res.status(429).json({
+        error: 'RATE_LIMIT_GLOBAL',
+        message: 'This scanner is at capacity right now (shared API quota). Try again in a few seconds.',
+        retryAfter: globalGate.retryAfter
       });
       return;
     }
 
-    // Re-fetch the URL object for categories/reputation/WHOIS/title.
-    const finalRes = await vt('/urls/' + urlId, apiKey);
-    if (finalRes.status === 200) {
-      const finalJson = await finalRes.json();
-      res.status(200).json({ cached: false, urlId, data: finalJson.data });
+    recordGlobalHit();
+    recordIpHit(ip);
+
+    const submitted = await vt('/urls', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'url=' + encodeURIComponent(url)
+    });
+
+    if (submitted.status === 401) {
+      res.status(500).json({ error: 'SERVER_KEY_REJECTED', message: 'The server\u2019s VirusTotal key was rejected. The site owner needs to check VT_API_KEY.' });
+      return;
+    }
+    if (submitted.status === 429) {
+      res.status(429).json({ error: 'RATE_LIMIT_UPSTREAM', message: 'VirusTotal\u2019s own rate limit was hit. Try again in a minute.' });
+      return;
+    }
+    if (!submitted.ok) {
+      res.status(502).json({ error: 'HTTP_' + submitted.status, message: 'Unexpected response from VirusTotal while submitting the URL.' });
       return;
     }
 
-    res.status(200).json({
-      cached: false,
-      urlId,
-      data: {
-        attributes: {
-          last_analysis_stats: completed.data.attributes.stats,
-          last_analysis_results: completed.data.attributes.results,
-          last_analysis_date: Math.floor(Date.now() / 1000)
-        }
-      }
-    });
+    const submittedJson = await submitted.json();
+    const analysisId = submittedJson.data.id;
+
+    res.status(200).json({ status: 'queued', urlId, analysisId });
   } catch (err) {
+    if (err && err.code === 'MISSING_SERVER_KEY') {
+      res.status(500).json({ error: 'MISSING_SERVER_KEY', message: err.message });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: 'SERVER_ERROR', message: String((err && err.message) || err) });
   }
