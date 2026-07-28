@@ -1,7 +1,11 @@
 {
+  "framework": null,
   "functions": {
     "api/scan.js": {
-      "maxDuration": 60
+      "maxDuration": 15
+    },
+    "api/status.js": {
+      "maxDuration": 15
     }
   }
 }
