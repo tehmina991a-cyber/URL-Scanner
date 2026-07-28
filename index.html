@@ -55,6 +55,7 @@
   .status-pill{display:flex; align-items:center; gap:7px; flex:none; font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-soft); padding:6px 10px; border:1px solid var(--ink); border-radius:100px; background:var(--paper-raised); white-space:nowrap;}
   .status-dot{width:6px; height:6px; border-radius:50%; background:var(--unknown); flex:none; transition:background .2s ease;}
   .status-dot.ready{background:var(--clean);}
+  .status-dot.error{background:var(--malicious);}
   .subtitle{color:var(--ink-soft); font-size:13.5px; line-height:1.6; margin:14px 0 0; max-width:60ch;}
 
   .intake{background:var(--paper-raised); border:1px solid var(--rule); border-radius:var(--radius); padding:20px; margin-top:22px;}
@@ -195,26 +196,19 @@
         <h1>URL Threat Scanner</h1>
         <div class="case-no" id="caseNo">NO. —</div>
       </div>
-      <div class="status-pill"><span class="status-dot" id="statusDot"></span><span id="statusText">Key required</span></div>
+      <div class="status-pill"><span class="status-dot ready" id="statusDot"></span><span id="statusText">Scanner ready</span></div>
     </div>
-    <p class="subtitle">Submit one or more URLs for analysis. Results are pulled live from VirusTotal's multi-engine detection network through a local proxy, so requests aren't blocked by the browser.</p>
+    <p class="subtitle">Submit one or more URLs for analysis. Results are pulled live from VirusTotal's multi-engine detection network — no account or API key needed on your end.</p>
   </header>
 
   <section class="intake">
     <div class="intake-label">Scan request</div>
     <div class="field">
-      <label for="apiKey">VirusTotal API key <span class="hint">sent only to your local proxy, never stored</span></label>
-      <div class="input-row">
-        <input type="password" id="apiKey" placeholder="Paste your API key" autocomplete="off">
-        <button class="ghost-btn" id="toggleKey" type="button">Show</button>
-      </div>
-    </div>
-    <div class="field">
       <label for="urlInput">URL(s) to scan <span class="hint">one per line</span></label>
       <textarea id="urlInput" placeholder="example.com/suspicious-link&#10;another-site.com/path"></textarea>
     </div>
     <button class="primary-btn" id="scanBtn">Scan URL(s)</button>
-    <div class="field-note">Free-tier VirusTotal keys allow ~4 requests/minute, so multiple URLs are queued and scanned one at a time with a short delay between each.</div>
+    <div class="field-note">Fast Response.</div>
     <div class="form-msg" id="formMsg"></div>
     <div class="queue-line" id="queueLine"><span class="queue-dot"></span><span id="queueText"></span></div>
   </section>
@@ -229,7 +223,7 @@
   </div>
 
   <div class="notice">
-    <strong>Running this tool:</strong> from this folder, run <code>npm install</code> once, then <code>node server.js</code>, and open <code>http://localhost:3000</code>. The proxy talks to VirusTotal server-side, which is why this version works where a browser-only version would hit CORS errors.
+    <strong>About this tool:</strong> Made By Tehmina - This Tool Analyze Any Link - Check Its Security - Full Optimized And Safely Working.
   </div>
 
 </div>
@@ -296,7 +290,7 @@
   "use strict";
   var $ = function(id){ return document.getElementById(id); };
 
-  var apiKeyInput = $('apiKey'), toggleKeyBtn = $('toggleKey'), urlInput = $('urlInput'),
+  var urlInput = $('urlInput'),
       scanBtn = $('scanBtn'), formMsg = $('formMsg'), queueLine = $('queueLine'), queueText = $('queueText'),
       statusDot = $('statusDot'), statusText = $('statusText'), reportsContainer = $('reportsContainer'),
       historyList = $('historyList'), clearHistoryBtn = $('clearHistoryBtn'),
@@ -314,16 +308,12 @@
     $('caseNo').textContent = 'NO. ' + stamp + '-' + rand;
   })();
 
-  toggleKeyBtn.addEventListener('click', function(){
-    var isPwd = apiKeyInput.type === 'password';
-    apiKeyInput.type = isPwd ? 'text' : 'password';
-    toggleKeyBtn.textContent = isPwd ? 'Hide' : 'Show';
-  });
-  apiKeyInput.addEventListener('input', function(){
-    var has = apiKeyInput.value.trim().length > 0;
-    statusDot.classList.toggle('ready', has);
-    statusText.textContent = has ? 'Key loaded' : 'Key required';
-  });
+  function setStatusError(msg){
+    statusDot.classList.remove('ready');
+    statusDot.classList.add('error');
+    statusText.textContent = 'Backend issue';
+    showMsg(msg);
+  }
 
   function showMsg(text){ formMsg.textContent = text; formMsg.classList.add('show'); }
   function clearMsg(){ formMsg.textContent = ''; formMsg.classList.remove('show'); }
@@ -498,13 +488,28 @@
   }
 
   /* ---------------- scanning ---------------- */
-  async function scanOne(url, key){
-    var res = await fetch('/api/scan', {
+  var POLL_INTERVAL_MS = 4000;
+  var POLL_MAX_ATTEMPTS = 20; // ~80s ceiling
+
+  async function postJson(path, body){
+    var res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey: key, url: url })
+      body: JSON.stringify(body)
     });
-    var json = await res.json();
+    var json = await res.json().catch(function(){ return {}; });
+    if(!res.ok){
+      var err = new Error(json.message || json.error || ('HTTP ' + res.status));
+      err.code = json.error;
+      err.retryAfter = json.retryAfter;
+      throw err;
+    }
+    return json;
+  }
+
+  async function getJson(path){
+    var res = await fetch(path);
+    var json = await res.json().catch(function(){ return {}; });
     if(!res.ok){
       var err = new Error(json.message || json.error || ('HTTP ' + res.status));
       err.code = json.error;
@@ -513,13 +518,41 @@
     return json;
   }
 
+  // Submits the URL, then — if it wasn't already cached — polls a
+  // lightweight status endpoint every few seconds until it's done.
+  // Each individual request is fast; only the overall wait (inherent to
+  // VirusTotal analyzing a brand-new URL) can take up to ~60-80s.
+  async function scanOne(url, onProgress){
+    var submitResult = await postJson('/api/scan', { url: url });
+    if(submitResult.status === 'completed'){
+      return submitResult;
+    }
+
+    var analysisId = submitResult.analysisId, urlId = submitResult.urlId;
+    for(var attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++){
+      if(onProgress) onProgress(attempt);
+      await sleep(POLL_INTERVAL_MS);
+      var poll = await getJson('/api/status?analysisId=' + encodeURIComponent(analysisId) + '&urlId=' + encodeURIComponent(urlId));
+      if(poll.status === 'completed'){
+        return poll;
+      }
+      // still queued (possibly throttled) — keep polling
+    }
+
+    var timeoutErr = new Error('Still queued on VirusTotal after ' + Math.round(POLL_MAX_ATTEMPTS * POLL_INTERVAL_MS / 1000) + 's. Try again shortly.');
+    timeoutErr.code = 'TIMEOUT';
+    throw timeoutErr;
+  }
+
   function renderError(url, err){
     var box = document.createElement('div');
     box.className = 'error-card';
     var msg;
-    if(err.code === 'AUTH') msg = 'VirusTotal rejected this API key (401). Double-check it and try again.';
-    else if(err.code === 'RATE_LIMIT') msg = 'Rate limit hit (429). Public keys allow ~4 requests/minute — wait a moment and retry.';
-    else if(err.code === 'TIMEOUT') msg = 'Still queued on VirusTotal after ~60s. Try again shortly.';
+    if(err.code === 'INVALID_URL') msg = err.message || 'That URL doesn\'t look valid.';
+    else if(err.code === 'RATE_LIMIT_IP') msg = 'You\u2019ve hit the per-visitor scan limit for now — try again in a bit.';
+    else if(err.code === 'RATE_LIMIT_GLOBAL' || err.code === 'RATE_LIMIT_UPSTREAM') msg = 'This scanner is at capacity right now (shared quota). Please retry in a few seconds.';
+    else if(err.code === 'TIMEOUT') msg = err.message;
+    else if(err.code === 'MISSING_SERVER_KEY' || err.code === 'SERVER_KEY_REJECTED') msg = 'The scanner\u2019s backend isn\u2019t configured correctly. Please try again later.';
     else msg = 'Scan failed: ' + err.message;
     box.innerHTML = '<div class="e-url">' + escapeHtml(url) + '</div><div>' + escapeHtml(msg) + '</div>';
     reportsContainer.insertBefore(box, reportsContainer.firstChild);
@@ -527,10 +560,8 @@
 
   async function runScan(){
     clearMsg();
-    var key = apiKeyInput.value.trim();
     var raw = urlInput.value.trim();
 
-    if(!key){ showMsg('Enter your VirusTotal API key first.'); apiKeyInput.focus(); return; }
     if(!raw){ showMsg('Enter at least one URL to scan.'); urlInput.focus(); return; }
 
     var urls = raw.split('\n').map(function(s){ return s.trim(); }).filter(Boolean).map(normalizeUrl);
@@ -541,11 +572,22 @@
     try{
       for(var i = 0; i < urls.length; i++){
         var url = urls[i];
-        setQueue('Scanning ' + (i+1) + ' of ' + urls.length + ': ' + url);
+        setQueue((urls.length > 1 ? '(' + (i+1) + '/' + urls.length + ') ' : '') + 'Checking ' + url + '\u2026');
         try{
-          var result = await scanOne(url, key);
+          var result = await scanOne(url, (function(u, idx){
+            return function(attempt){
+              var elapsed = attempt * (POLL_INTERVAL_MS / 1000);
+              setQueue((urls.length > 1 ? '(' + (idx+1) + '/' + urls.length + ') ' : '') + 'Analyzing ' + u + '\u2026 (' + elapsed + 's)');
+            };
+          })(url, i));
+
           var card = buildCard(url, result.urlId, result.data.attributes, false);
           reportsContainer.insertBefore(card, reportsContainer.firstChild);
+
+          statusDot.classList.remove('error');
+          statusDot.classList.add('ready');
+          statusText.textContent = 'Scanner ready';
+          clearMsg();
 
           var stats = result.data.attributes.last_analysis_stats || {};
           addHistoryEntry({
@@ -557,15 +599,17 @@
           });
         } catch(err){
           if(err instanceof TypeError){
-            showMsg('Could not reach the local proxy server. Make sure "node server.js" is running, then reload this page.');
+            showMsg('Could not reach the scanning backend. Please reload and try again.');
             break;
           }
+          if(err.code === 'MISSING_SERVER_KEY' || err.code === 'SERVER_KEY_REJECTED'){
+            setStatusError(err.message);
+          }
           renderError(url, err);
-        }
-
-        if(i < urls.length - 1){
-          setQueue('Waiting to respect VirusTotal\'s rate limit… next scan shortly');
-          await sleep(16000);
+          if(err.code === 'RATE_LIMIT_GLOBAL' || err.code === 'RATE_LIMIT_IP'){
+            // brief pause before moving on to the next queued URL
+            await sleep(3000);
+          }
         }
       }
     } finally {
@@ -575,6 +619,9 @@
   }
 
   scanBtn.addEventListener('click', runScan);
+  urlInput.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runScan();
+  });
 
 })();
 </script>
