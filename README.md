@@ -1,52 +1,106 @@
 # URL Threat Scanner
 
-A VirusTotal-backed URL scanner: a small local proxy server plus a static page. The proxy exists purely to get around browser CORS restrictions — VirusTotal's API doesn't allow direct calls from a web page, but it works fine from a server.
+A VirusTotal-backed URL scanner. Visitors don't need their own API key — scanning
+is powered by one VirusTotal API key configured **server-side only**, via an
+environment variable.
 
-## Setup
+## How it works
+
+- **`POST /api/scan`** checks VirusTotal's cache first. If the URL is already
+  known, it returns a full report in well under a second. If it's brand new,
+  it kicks off a scan and returns immediately with an `analysisId` — it never
+  makes the browser wait.
+- **`GET /api/status`** is polled by the page every few seconds until that
+  analysis finishes (usually 15–60s for a genuinely new URL). Each poll is a
+  quick, independent request, so the UI stays responsive instead of hanging
+  on one long request.
+- Your VirusTotal key lives only in `process.env.VT_API_KEY`, read on the
+  server. It is never sent to, or visible in, the browser.
+
+## Local setup
 
 ```bash
 npm install
+cp .env.example .env
+# edit .env and paste your VirusTotal API key into VT_API_KEY=
 node server.js
 ```
 
-Then open **http://localhost:3000** in your browser.
+Open **http://localhost:3000**.
 
-You'll need your own VirusTotal API key (free at [virustotal.com](https://www.virustotal.com/gui/join-us) — the free tier allows ~4 requests/minute and 500/day). Paste it into the page; it's sent to your own local server on each request and never written to disk.
-
-## What it does
-
-- **Scan one or more URLs** (one per line). Existing VirusTotal records are used if present; otherwise it submits a fresh scan and polls until it completes.
-- **Full report per URL**: detection ratio, per-engine breakdown, community categories, reputation score, WHOIS record, final URL after redirects, and HTTP response code.
-- **History**, saved in your browser (`localStorage`), so past scans persist across reloads without re-querying VirusTotal.
-- **Print / PDF export** per report, using the browser's own print dialog ("Save as PDF").
-
-## Notes
-
-- Multiple URLs are scanned one at a time with a ~16s delay between them to stay under the public API's rate limit. A single "fresh" URL (not already in VirusTotal's database) can itself take up to a minute, since the server polls for the analysis to finish.
-- This server has no authentication of its own — it's meant to run on `localhost` for personal use. If you ever expose it beyond your own machine, add your own auth in front of it, since anyone who can reach it could spend your API quota.
-- Free-tier keys are rate-limited; a 429 response from VirusTotal will show up in the UI as "Rate limit hit."
+Get a free key at [virustotal.com](https://www.virustotal.com/gui/join-us).
+The free tier allows **~4 lookups/minute and 500/day** — see "About rate
+limits" below, this matters a lot once the tool is public.
 
 ## Deploying to Vercel
 
-This repo is already laid out the way Vercel expects: a static `index.html` at the root, plus a serverless function at `api/scan.js` that does the same job as `server.js` does locally. You don't need `server.js` or `express` at all for a Vercel deployment — those are only for running it on your own machine.
+1. Push this folder to a GitHub repo. **Do not** put your real API key in any
+   committed file — `.env` is already git-ignored for this reason.
+2. Go to [vercel.com/new](https://vercel.com/new) and import the repo (framework
+   preset: "Other").
+3. Before or after the first deploy, go to **Project → Settings →
+   Environment Variables** and add:
+   - Key: `VT_API_KEY`
+   - Value: your VirusTotal API key
+   - Environments: Production (and Preview/Development if you want those to work too)
+4. Redeploy (Vercel → Deployments → ⋯ → Redeploy) so the function picks up the
+   new environment variable.
 
-**Option A — Vercel CLI (fastest):**
-```bash
-npm install -g vercel
-vercel login
-vercel        # deploys a preview URL
-vercel --prod # promotes to your production URL
-```
-Run these from inside the project folder. Vercel will detect `index.html` and `api/scan.js` automatically — no build step is needed.
+You'll get a URL like `https://your-project.vercel.app`. No visitor ever needs
+to enter or see the key — `api/scan.js` and `api/status.js` are the only code
+that touches it, and both run server-side.
 
-**Option B — Git + Vercel dashboard:**
-1. Push this folder to a GitHub (or GitLab/Bitbucket) repo.
-2. Go to [vercel.com/new](https://vercel.com/new), import that repo.
-3. Leave the framework preset as "Other" and click Deploy — no environment variables are required, since each visitor supplies their own VirusTotal API key in the page itself.
+## About rate limits (read this before going public)
 
-Either way, you'll get a URL like `https://your-project.vercel.app` that works the same as `localhost:3000` did — the only difference is `api/scan.js` runs as a Vercel serverless function instead of an Express route.
+VirusTotal's **free public API key is capped at ~4 requests/minute and
+500/day, for the key itself** — not per visitor. Once this key is shared by
+everyone who uses your deployed tool, that ceiling applies to *all your
+traffic combined*.
 
-**Things worth knowing before you deploy publicly:**
-- **No login screen.** Anyone with the link can open the page and scan URLs — but only using *their own* API key, which they type in themselves and which is never stored anywhere. If you want to restrict access, Vercel's Pro plan offers password-protected deployments, or you could add a simple shared-secret check in `api/scan.js`.
-- **Function duration.** A fresh (never-before-seen) URL can take up to ~60 seconds to analyze, since the function polls VirusTotal until it finishes. `vercel.json` sets `maxDuration: 60` for this function so it isn't cut off early.
-- **Hobby plan is for personal, non-commercial use** per Vercel's terms — fine for a personal tool, but if this becomes something you charge for or run for others, move to a paid plan.
+This project protects the key with two safeguards in `api/_lib.js`:
+
+- **Global limiter** — refuses new *submissions* (not cached lookups) once
+  ~4/min are in flight, returning a fast, clear 429 instead of letting
+  VirusTotal itself reject the request later.
+- **Per-IP limiter** — caps each visitor to 20 scans/hour, so one person
+  can't burn through the whole shared quota.
+
+Both are **in-memory**, meaning they reset on a serverless cold start and
+aren't shared across multiple concurrent function instances. That's a
+reasonable first line of defense for light-to-moderate traffic, but it is
+*not* a hard guarantee at real scale. If you expect meaningful public
+traffic:
+
+- **Get a paid VirusTotal API tier** (higher quota — the real fix), or
+- **Add a proper shared rate-limit store** like [Upstash Redis](https://upstash.com)
+  or [Vercel KV](https://vercel.com/docs/storage/vercel-kv) — a few lines swapped
+  into `_lib.js` in place of the in-memory `Map`/array, or
+- Cache completed results in that same store so repeat scans of popular URLs
+  never touch your VirusTotal quota at all.
+
+Being upfront about this: a single free-tier key genuinely cannot support
+heavy public traffic no matter how the code is written — that's a VirusTotal
+account-tier limit, not a bug in this app.
+
+## What it does
+
+- **Scan one or more URLs** (one per line). Existing VirusTotal records are
+  reused instantly; brand-new URLs are submitted and tracked to completion.
+- **Full report per URL**: detection ratio, per-engine breakdown, community
+  categories, reputation score, WHOIS record, final URL after redirects, and
+  HTTP response code.
+- **History**, saved in the visitor's own browser (`localStorage`) — never
+  sent to the server.
+- **Print / PDF export** per report via the browser's print dialog.
+- Basic input validation blocks empty/malformed URLs and internal/loopback
+  addresses before they ever reach VirusTotal.
+
+## Security notes
+
+- Never commit a real `.env` file — `.gitignore` already excludes it.
+- If you rotate your VirusTotal key, just update the `VT_API_KEY` value in
+  Vercel's dashboard and redeploy; nothing in the code needs to change.
+- There's no login/auth on this app itself — anyone with the link can submit
+  scans (bounded by the rate limiters above). Add your own auth in front of
+  it (e.g. Vercel password protection on paid plans, or a simple shared-secret
+  check) if you need to restrict access.
