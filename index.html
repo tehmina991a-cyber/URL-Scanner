@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>URL Threat Scanner — VirusTotal Case File</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#E7E3D8;
+    --paper-raised:#EFEBE0;
+    --ink:#1B2130;
+    --ink-soft:#4A5062;
+    --ink-faint:#7B8091;
+    --rule:#C9C2AC;
+    --rule-soft:#D8D2C0;
+    --seal:#1F3F63;
+    --seal-soft:#3A5D85;
+    --clean:#2F6F4E;
+    --suspicious:#B07A22;
+    --malicious:#A32F26;
+    --unknown:#5B5F6B;
+    --radius:6px;
+    --font-display:'IBM Plex Serif', serif;
+    --font-body:'IBM Plex Sans', sans-serif;
+    --font-mono:'IBM Plex Mono', monospace;
+    --shell-max:800px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.015) 0px, rgba(0,0,0,0.015) 1px, transparent 1px, transparent 3px),
+      var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+    padding:0 0 60px;
+  }
+  ::selection{background:rgba(31,63,99,0.22);}
+  *:focus-visible{outline:2px solid var(--seal); outline-offset:2px; border-radius:3px;}
+  a{color:var(--seal);}
+  button{font-family:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent;}
+
+  .shell{max-width:var(--shell-max); margin:0 auto; padding:0 20px;}
+
+  header.top{border-bottom:2px solid var(--ink); padding:26px 0 16px;}
+  .top-row{display:flex; align-items:flex-start; justify-content:space-between; gap:14px;}
+  .file-label{font-family:var(--font-mono); font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px;}
+  h1{font-family:var(--font-display); font-weight:600; font-size:clamp(24px,4.4vw,32px); margin:0; letter-spacing:-0.01em;}
+  .case-no{font-family:var(--font-mono); font-size:11.5px; color:var(--ink-soft); margin-top:8px;}
+  .status-pill{display:flex; align-items:center; gap:7px; flex:none; font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-soft); padding:6px 10px; border:1px solid var(--ink); border-radius:100px; background:var(--paper-raised); white-space:nowrap;}
+  .status-dot{width:6px; height:6px; border-radius:50%; background:var(--unknown); flex:none; transition:background .2s ease;}
+  .status-dot.ready{background:var(--clean);}
+  .subtitle{color:var(--ink-soft); font-size:13.5px; line-height:1.6; margin:14px 0 0; max-width:60ch;}
+
+  .intake{background:var(--paper-raised); border:1px solid var(--rule); border-radius:var(--radius); padding:20px; margin-top:22px;}
+  .intake-label{font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:14px; display:flex; align-items:center; gap:8px;}
+  .intake-label::after{content:''; flex:1; height:1px; background:var(--rule);}
+  .field{margin-bottom:14px;}
+  .field:last-of-type{margin-bottom:0;}
+  .field label{display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px; font-weight:500; color:var(--ink); margin-bottom:6px;}
+  .field label .hint{font-weight:400; color:var(--ink-faint); font-size:11px;}
+  .input-row{display:flex; gap:8px;}
+  input[type="text"], input[type="password"], textarea{
+    flex:1; width:100%; font-family:var(--font-mono); font-size:13px; color:var(--ink);
+    background:#fff; border:1px solid var(--ink); border-radius:4px; padding:10px 11px;
+  }
+  textarea{resize:vertical; min-height:74px; line-height:1.5;}
+  input::placeholder, textarea::placeholder{color:var(--ink-faint);}
+  .ghost-btn{background:transparent; border:1px solid var(--ink); color:var(--ink-soft); border-radius:4px; padding:0 12px; font-size:11px; font-family:var(--font-mono);}
+  .ghost-btn:hover{background:var(--paper);}
+  .primary-btn{width:100%; margin-top:16px; background:var(--seal); color:#fff; border:none; padding:12px 16px; border-radius:4px; font-size:13.5px; font-weight:600; font-family:var(--font-body); letter-spacing:0.01em; transition:background .15s ease, transform .1s ease;}
+  .primary-btn:hover{background:var(--seal-soft);}
+  .primary-btn:active{transform:scale(0.99);}
+  .primary-btn:disabled{background:var(--unknown); cursor:progress;}
+  .field-note{font-size:11px; color:var(--ink-faint); margin-top:6px; line-height:1.5;}
+
+  .form-msg{font-size:12px; color:var(--malicious); margin-top:10px; display:none;}
+  .form-msg.show{display:block;}
+  .queue-line{font-family:var(--font-mono); font-size:12px; color:var(--ink-soft); margin-top:14px; display:none; align-items:center; gap:8px;}
+  .queue-line.show{display:flex;}
+  .queue-dot{width:6px; height:6px; border-radius:50%; background:var(--seal); animation:pulse 1s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:0.25;} 50%{opacity:1;}}
+  @media (prefers-reduced-motion: reduce){ .queue-dot{animation:none; opacity:1;} }
+
+  /* ---------- section labels shared ---------- */
+  .section-label{font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-faint); margin:26px 0 12px; display:flex; align-items:center; gap:8px;}
+  .section-label::after{content:''; flex:1; height:1px; background:var(--rule);}
+
+  /* ---------- History ---------- */
+  .history{margin-top:8px;}
+  .history-list{border:1px solid var(--rule); border-radius:4px; overflow:hidden;}
+  .history-empty{padding:14px; font-size:12.5px; color:var(--ink-faint); font-style:italic; background:var(--paper-raised);}
+  .history-row{display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--rule-soft); background:#fff; font-size:12px; cursor:pointer;}
+  .history-row:last-child{border-bottom:none;}
+  .history-row:hover{background:var(--paper-raised);}
+  .history-row .h-badge{width:9px; height:9px; border-radius:2px; flex:none;}
+  .history-row .h-url{font-family:var(--font-mono); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink);}
+  .history-row .h-time{color:var(--ink-faint); font-size:11px; flex:none;}
+  .history-actions{display:flex; justify-content:flex-end; margin-top:10px;}
+
+  /* ---------- Case card (report) ---------- */
+  .case-card{background:var(--paper-raised); border:1px solid var(--rule); border-radius:var(--radius); padding:20px; margin-bottom:18px;}
+  .case-card.from-history{border-left:3px solid var(--seal);}
+  .report-head{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px;}
+  .stamp{font-family:var(--font-display); font-weight:700; font-size:15px; letter-spacing:0.1em; text-transform:uppercase; border:3px double currentColor; border-radius:3px; padding:8px 16px; transform:rotate(-5deg); display:inline-block; flex:none;}
+  .stamp.clean{color:var(--clean);}
+  .stamp.suspicious{color:var(--suspicious);}
+  .stamp.malicious{color:var(--malicious);}
+  .stamp.unknown{color:var(--unknown);}
+  .stamp.animate{animation:stampHit .38s ease-out;}
+  @keyframes stampHit{0%{transform:scale(1.7) rotate(-5deg); opacity:0;} 60%{transform:scale(0.94) rotate(-5deg); opacity:1;} 100%{transform:scale(1) rotate(-5deg); opacity:1;}}
+  @media (prefers-reduced-motion: reduce){ .stamp.animate{animation:none;} }
+
+  .report-meta{font-size:12px; color:var(--ink-soft); line-height:1.7; flex:1; min-width:200px;}
+  .report-meta .url-echo{font-family:var(--font-mono); color:var(--ink); word-break:break-all;}
+  .report-meta a{font-family:var(--font-mono);}
+  .card-actions{display:flex; gap:6px; flex:none;}
+
+  .ratio-line{font-family:var(--font-display); font-size:22px; font-weight:600; margin:18px 0 10px;}
+  .ratio-line .of{font-size:14px; font-weight:400; color:var(--ink-soft); font-family:var(--font-body);}
+
+  .stat-bar{display:flex; height:10px; border-radius:100px; overflow:hidden; border:1px solid var(--ink); background:#fff;}
+  .stat-bar span{height:100%; display:block;}
+  .seg-malicious{background:var(--malicious);}
+  .seg-suspicious{background:var(--suspicious);}
+  .seg-harmless{background:var(--clean);}
+  .seg-undetected{background:var(--rule);}
+  .seg-timeout{background:var(--ink-faint);}
+
+  .legend{display:flex; flex-wrap:wrap; gap:12px 16px; margin-top:10px; font-size:11.5px; color:var(--ink-soft);}
+  .legend-item{display:flex; align-items:center; gap:6px;}
+  .legend-dot{width:8px; height:8px; border-radius:2px; flex:none;}
+
+  .divider{height:1px; background:var(--rule); margin:20px 0;}
+
+  .meta-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:12px; color:var(--ink-soft); margin-bottom:4px;}
+  .meta-grid .k{font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); display:block; margin-bottom:3px;}
+  .meta-grid .v{color:var(--ink); word-break:break-word;}
+  .rep-badge{font-family:var(--font-mono); font-weight:600;}
+  .rep-badge.pos{color:var(--clean);}
+  .rep-badge.neg{color:var(--malicious);}
+  .rep-badge.zero{color:var(--ink-soft);}
+
+  .cat-pills{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+  .cat-pill{font-size:11px; padding:3px 9px; border-radius:100px; background:#fff; border:1px solid var(--rule); color:var(--ink-soft); text-transform:capitalize;}
+
+  details.whois{margin-top:14px;}
+  details.whois summary{cursor:pointer; font-family:var(--font-mono); font-size:11.5px; color:var(--ink-soft); letter-spacing:0.04em;}
+  details.whois pre{font-family:var(--font-mono); font-size:11px; color:var(--ink-soft); background:#fff; border:1px solid var(--rule); border-radius:4px; padding:12px; margin-top:8px; max-height:220px; overflow:auto; white-space:pre-wrap; word-break:break-word;}
+
+  .engine-table{width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:12px;}
+  .engine-table th{text-align:left; font-weight:500; color:var(--ink-faint); font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; padding:0 10px 8px; border-bottom:1px solid var(--rule);}
+  .engine-table td{padding:8px 10px; border-bottom:1px solid var(--rule-soft); vertical-align:top;}
+  .engine-table tr:last-child td{border-bottom:none;}
+  .cat-tag{display:inline-block; padding:2px 7px; border-radius:100px; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em;}
+  .cat-tag.malicious{background:rgba(163,47,38,0.12); color:var(--malicious);}
+  .cat-tag.suspicious{background:rgba(176,122,34,0.14); color:var(--suspicious);}
+
+  .empty-flag{font-size:12.5px; color:var(--ink-soft); font-style:italic;}
+  .show-all-toggle{margin-top:14px; background:transparent; border:1px solid var(--ink); color:var(--ink-soft); border-radius:4px; padding:8px 12px; font-size:11.5px; font-family:var(--font-mono);}
+  .show-all-toggle:hover{background:var(--paper-raised);}
+  .all-engines{display:none; margin-top:14px; max-height:340px; overflow-y:auto; border:1px solid var(--rule); border-radius:4px;}
+  .all-engines.show{display:block;}
+  .all-engines table{width:100%;}
+
+  .footnote{margin-top:20px; font-size:11px; color:var(--ink-faint); line-height:1.6;}
+
+  .notice{margin-top:22px; border:1px solid var(--rule); border-left:3px solid var(--seal); background:var(--paper-raised); border-radius:4px; padding:14px 16px; font-size:12.5px; color:var(--ink-soft); line-height:1.6;}
+  .notice strong{color:var(--ink);}
+
+  .error-card{background:#fff; border:1px solid var(--malicious); border-left:3px solid var(--malicious); border-radius:4px; padding:14px 16px; margin-bottom:14px; font-size:12.5px; color:var(--ink-soft);}
+  .error-card .e-url{font-family:var(--font-mono); color:var(--ink); word-break:break-all; margin-bottom:6px;}
+
+  /* ---------- print ---------- */
+  @media print{
+    body *{visibility:hidden;}
+    .print-target, .print-target *{visibility:visible;}
+    .print-target{position:absolute; left:0; top:0; width:100%; margin:0; border:none;}
+    .card-actions, .show-all-toggle{display:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="top">
+    <div class="top-row">
+      <div>
+        <div class="file-label">Threat Intelligence — Case File</div>
+        <h1>URL Threat Scanner</h1>
+        <div class="case-no" id="caseNo">NO. —</div>
+      </div>
+      <div class="status-pill"><span class="status-dot" id="statusDot"></span><span id="statusText">Key required</span></div>
+    </div>
+    <p class="subtitle">Submit one or more URLs for analysis. Results are pulled live from VirusTotal's multi-engine detection network through a local proxy, so requests aren't blocked by the browser.</p>
+  </header>
+
+  <section class="intake">
+    <div class="intake-label">Scan request</div>
+    <div class="field">
+      <label for="apiKey">VirusTotal API key <span class="hint">sent only to your local proxy, never stored</span></label>
+      <div class="input-row">
+        <input type="password" id="apiKey" placeholder="Paste your API key" autocomplete="off">
+        <button class="ghost-btn" id="toggleKey" type="button">Show</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="urlInput">URL(s) to scan <span class="hint">one per line</span></label>
+      <textarea id="urlInput" placeholder="example.com/suspicious-link&#10;another-site.com/path"></textarea>
+    </div>
+    <button class="primary-btn" id="scanBtn">Scan URL(s)</button>
+    <div class="field-note">Free-tier VirusTotal keys allow ~4 requests/minute, so multiple URLs are queued and scanned one at a time with a short delay between each.</div>
+    <div class="form-msg" id="formMsg"></div>
+    <div class="queue-line" id="queueLine"><span class="queue-dot"></span><span id="queueText"></span></div>
+  </section>
+
+  <div class="section-label">Reports</div>
+  <div id="reportsContainer"></div>
+
+  <div class="section-label">History</div>
+  <div class="history">
+    <div class="history-list" id="historyList"><div class="history-empty">No scans yet this session.</div></div>
+    <div class="history-actions"><button class="ghost-btn" id="clearHistoryBtn" type="button">Clear history</button></div>
+  </div>
+
+  <div class="notice">
+    <strong>Running this tool:</strong> from this folder, run <code>npm install</code> once, then <code>node server.js</code>, and open <code>http://localhost:3000</code>. The proxy talks to VirusTotal server-side, which is why this version works where a browser-only version would hit CORS errors.
+  </div>
+
+</div>
+
+<template id="caseCardTemplate">
+  <div class="case-card">
+    <div class="report-head">
+      <div class="stamp">—</div>
+      <div class="report-meta">
+        <div class="url-echo"></div>
+        <div class="scan-line">Scanned <span class="scan-time"></span> · <a class="vt-link" href="#" target="_blank" rel="noopener">View on virustotal.com</a></div>
+      </div>
+      <div class="card-actions">
+        <button class="ghost-btn print-btn" type="button">Print / PDF</button>
+      </div>
+    </div>
+
+    <div class="ratio-line"></div>
+    <div class="stat-bar">
+      <span class="seg-malicious"></span><span class="seg-suspicious"></span><span class="seg-harmless"></span><span class="seg-undetected"></span><span class="seg-timeout"></span>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot" style="background:var(--malicious);"></span>Malicious <span class="cnt-malicious"></span></div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--suspicious);"></span>Suspicious <span class="cnt-suspicious"></span></div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--clean);"></span>Harmless <span class="cnt-harmless"></span></div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--rule);"></span>Undetected <span class="cnt-undetected"></span></div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--ink-faint);"></span>Timeout <span class="cnt-timeout"></span></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="meta-grid">
+      <div><span class="k">Page title</span><span class="v title-val">—</span></div>
+      <div><span class="k">Final URL (after redirects)</span><span class="v final-url-val">—</span></div>
+      <div><span class="k">HTTP response</span><span class="v http-code-val">—</span></div>
+      <div><span class="k">Community reputation</span><span class="v rep-val rep-badge">—</span></div>
+    </div>
+    <div class="cat-pills"></div>
+    <details class="whois" style="display:none;"><summary>WHOIS record</summary><pre class="whois-pre"></pre></details>
+
+    <div class="divider"></div>
+
+    <div class="section-label" style="margin-top:0;">Flagged by</div>
+    <div class="empty-flag no-flags">No engines flagged this URL.</div>
+    <table class="engine-table flagged-table" style="display:none;">
+      <thead><tr><th>Engine</th><th>Category</th><th>Result</th></tr></thead>
+      <tbody class="flagged-body"></tbody>
+    </table>
+
+    <button class="show-all-toggle" type="button">Show all engines</button>
+    <div class="all-engines">
+      <table class="engine-table">
+        <thead><tr><th>Engine</th><th>Category</th><th>Result</th></tr></thead>
+        <tbody class="all-engines-body"></tbody>
+      </table>
+    </div>
+
+    <p class="footnote">Detection data supplied by VirusTotal's public API. A "malicious" or "suspicious" flag from one engine is not a definitive verdict — cross-check unfamiliar results before acting on them.</p>
+  </div>
+</template>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+
+  var apiKeyInput = $('apiKey'), toggleKeyBtn = $('toggleKey'), urlInput = $('urlInput'),
+      scanBtn = $('scanBtn'), formMsg = $('formMsg'), queueLine = $('queueLine'), queueText = $('queueText'),
+      statusDot = $('statusDot'), statusText = $('statusText'), reportsContainer = $('reportsContainer'),
+      historyList = $('historyList'), clearHistoryBtn = $('clearHistoryBtn'),
+      cardTemplate = $('caseCardTemplate');
+
+  var HISTORY_KEY = 'vt_scan_history_v1';
+  var HISTORY_LIMIT = 30;
+
+  // ---- case number ----
+  (function(){
+    var d = new Date();
+    var pad = function(n){ return String(n).padStart(2,'0'); };
+    var stamp = d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate());
+    var rand = Math.floor(1000 + Math.random()*9000);
+    $('caseNo').textContent = 'NO. ' + stamp + '-' + rand;
+  })();
+
+  toggleKeyBtn.addEventListener('click', function(){
+    var isPwd = apiKeyInput.type === 'password';
+    apiKeyInput.type = isPwd ? 'text' : 'password';
+    toggleKeyBtn.textContent = isPwd ? 'Hide' : 'Show';
+  });
+  apiKeyInput.addEventListener('input', function(){
+    var has = apiKeyInput.value.trim().length > 0;
+    statusDot.classList.toggle('ready', has);
+    statusText.textContent = has ? 'Key loaded' : 'Key required';
+  });
+
+  function showMsg(text){ formMsg.textContent = text; formMsg.classList.add('show'); }
+  function clearMsg(){ formMsg.textContent = ''; formMsg.classList.remove('show'); }
+  function setQueue(text){
+    if(text){ queueText.textContent = text; queueLine.classList.add('show'); }
+    else { queueLine.classList.remove('show'); }
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+
+  function normalizeUrl(raw){
+    var v = raw.trim();
+    if(!/^https?:\/\//i.test(v)) v = 'https://' + v;
+    return v;
+  }
+
+  function categorize(stats){
+    var m = stats.malicious || 0, s = stats.suspicious || 0;
+    if(m > 0) return 'malicious';
+    if(s > 0) return 'suspicious';
+    if((stats.harmless || 0) + (stats.undetected || 0) > 0) return 'clean';
+    return 'unknown';
+  }
+
+  function sleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+
+  /* ---------------- history ---------------- */
+  function loadHistory(){
+    try{ return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }catch(e){ return []; }
+  }
+  function saveHistory(list){
+    try{ localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_LIMIT))); }catch(e){ /* storage full or unavailable — skip silently */ }
+  }
+  function addHistoryEntry(entry){
+    var list = loadHistory();
+    list.unshift(entry);
+    saveHistory(list);
+    renderHistory();
+  }
+  function renderHistory(){
+    var list = loadHistory();
+    if(!list.length){
+      historyList.innerHTML = '<div class="history-empty">No scans yet this session.</div>';
+      return;
+    }
+    historyList.innerHTML = '';
+    list.forEach(function(entry, idx){
+      var colorVar = { malicious:'var(--malicious)', suspicious:'var(--suspicious)', clean:'var(--clean)', unknown:'var(--unknown)' }[entry.verdict] || 'var(--unknown)';
+      var row = document.createElement('div');
+      row.className = 'history-row';
+      row.innerHTML =
+        '<span class="h-badge" style="background:' + colorVar + ';"></span>' +
+        '<span class="h-url">' + escapeHtml(entry.url) + '</span>' +
+        '<span class="h-time">' + escapeHtml(new Date(entry.scannedAt * 1000).toLocaleString()) + '</span>';
+      row.addEventListener('click', function(){
+        var card = buildCard(entry.url, entry.urlId, entry.attrs, true);
+        reportsContainer.insertBefore(card, reportsContainer.firstChild);
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      historyList.appendChild(row);
+    });
+  }
+  clearHistoryBtn.addEventListener('click', function(){
+    if(!confirm('Clear all scan history from this browser?')) return;
+    localStorage.removeItem(HISTORY_KEY);
+    renderHistory();
+  });
+  renderHistory();
+
+  /* ---------------- card building ---------------- */
+  function buildCard(url, urlId, attrs, fromHistory){
+    var frag = cardTemplate.content.cloneNode(true);
+    var card = frag.querySelector('.case-card');
+    if(fromHistory) card.classList.add('from-history');
+
+    var stats = attrs.last_analysis_stats || {};
+    var results = attrs.last_analysis_results || {};
+    var verdict = categorize(stats);
+    var labels = { malicious:'MALICIOUS', suspicious:'SUSPICIOUS', clean:'CLEAN', unknown:'UNKNOWN' };
+
+    var stampEl = card.querySelector('.stamp');
+    stampEl.className = 'stamp ' + verdict + ' animate';
+    stampEl.textContent = labels[verdict];
+
+    card.querySelector('.url-echo').textContent = url;
+    var when = attrs.last_analysis_date ? new Date(attrs.last_analysis_date * 1000).toLocaleString() : 'just now';
+    card.querySelector('.scan-time').textContent = when + (fromHistory ? ' (from history)' : '');
+    card.querySelector('.vt-link').href = 'https://www.virustotal.com/gui/url/' + urlId;
+
+    var total = (stats.malicious||0)+(stats.suspicious||0)+(stats.harmless||0)+(stats.undetected||0)+(stats.timeout||0);
+    var flagged = (stats.malicious||0) + (stats.suspicious||0);
+    card.querySelector('.ratio-line').innerHTML = flagged + ' <span class="of">of ' + total + ' engines flagged this URL</span>';
+
+    var pct = function(n){ return total ? (n/total*100) : 0; };
+    card.querySelector('.seg-malicious').style.width = pct(stats.malicious) + '%';
+    card.querySelector('.seg-suspicious').style.width = pct(stats.suspicious) + '%';
+    card.querySelector('.seg-harmless').style.width = pct(stats.harmless) + '%';
+    card.querySelector('.seg-undetected').style.width = pct(stats.undetected) + '%';
+    card.querySelector('.seg-timeout').style.width = pct(stats.timeout) + '%';
+
+    card.querySelector('.cnt-malicious').textContent = '(' + (stats.malicious||0) + ')';
+    card.querySelector('.cnt-suspicious').textContent = '(' + (stats.suspicious||0) + ')';
+    card.querySelector('.cnt-harmless').textContent = '(' + (stats.harmless||0) + ')';
+    card.querySelector('.cnt-undetected').textContent = '(' + (stats.undetected||0) + ')';
+    card.querySelector('.cnt-timeout').textContent = '(' + (stats.timeout||0) + ')';
+
+    // extra metadata
+    card.querySelector('.title-val').textContent = attrs.title || '—';
+    card.querySelector('.final-url-val').textContent = attrs.last_final_url || url;
+    card.querySelector('.http-code-val').textContent = (attrs.last_http_response_code != null) ? attrs.last_http_response_code : '—';
+    var repEl = card.querySelector('.rep-val');
+    var rep = attrs.reputation;
+    if(typeof rep === 'number'){
+      repEl.textContent = (rep > 0 ? '+' : '') + rep;
+      repEl.classList.add(rep > 0 ? 'pos' : (rep < 0 ? 'neg' : 'zero'));
+    } else {
+      repEl.textContent = '—';
+      repEl.classList.add('zero');
+    }
+
+    var catPills = card.querySelector('.cat-pills');
+    var cats = attrs.categories ? Array.from(new Set(Object.values(attrs.categories))) : [];
+    if(cats.length){
+      catPills.innerHTML = cats.map(function(c){ return '<span class="cat-pill">' + escapeHtml(c) + '</span>'; }).join('');
+    }
+
+    var whoisDetails = card.querySelector('.whois');
+    if(attrs.whois){
+      whoisDetails.style.display = 'block';
+      card.querySelector('.whois-pre').textContent = attrs.whois;
+    }
+
+    // engine tables
+    var flaggedBody = card.querySelector('.flagged-body');
+    var allBody = card.querySelector('.all-engines-body');
+    var entries = Object.keys(results).map(function(k){ return results[k]; });
+    entries.sort(function(a,b){ return (a.engine_name||'').localeCompare(b.engine_name||''); });
+    var flaggedCount = 0;
+    entries.forEach(function(r){
+      var cat = r.category;
+      var rowHtml = '<tr><td>' + escapeHtml(r.engine_name) + '</td><td>' +
+        (cat === 'malicious' || cat === 'suspicious'
+          ? '<span class="cat-tag ' + cat + '">' + cat + '</span>'
+          : escapeHtml(cat)) +
+        '</td><td>' + escapeHtml(r.result || '—') + '</td></tr>';
+      allBody.insertAdjacentHTML('beforeend', rowHtml);
+      if(cat === 'malicious' || cat === 'suspicious'){
+        flaggedBody.insertAdjacentHTML('beforeend', rowHtml);
+        flaggedCount++;
+      }
+    });
+    card.querySelector('.no-flags').style.display = flaggedCount ? 'none' : 'block';
+    card.querySelector('.flagged-table').style.display = flaggedCount ? 'table' : 'none';
+
+    // wire up buttons within this card
+    card.querySelector('.show-all-toggle').addEventListener('click', function(e){
+      var allEngines = card.querySelector('.all-engines');
+      var showing = allEngines.classList.toggle('show');
+      e.target.textContent = showing ? 'Hide all engines' : 'Show all engines';
+    });
+    card.querySelector('.print-btn').addEventListener('click', function(){
+      document.querySelectorAll('.case-card').forEach(function(c){ c.classList.remove('print-target'); });
+      card.classList.add('print-target');
+      window.print();
+    });
+
+    return card;
+  }
+
+  /* ---------------- scanning ---------------- */
+  async function scanOne(url, key){
+    var res = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: key, url: url })
+    });
+    var json = await res.json();
+    if(!res.ok){
+      var err = new Error(json.message || json.error || ('HTTP ' + res.status));
+      err.code = json.error;
+      throw err;
+    }
+    return json;
+  }
+
+  function renderError(url, err){
+    var box = document.createElement('div');
+    box.className = 'error-card';
+    var msg;
+    if(err.code === 'AUTH') msg = 'VirusTotal rejected this API key (401). Double-check it and try again.';
+    else if(err.code === 'RATE_LIMIT') msg = 'Rate limit hit (429). Public keys allow ~4 requests/minute — wait a moment and retry.';
+    else if(err.code === 'TIMEOUT') msg = 'Still queued on VirusTotal after ~60s. Try again shortly.';
+    else msg = 'Scan failed: ' + err.message;
+    box.innerHTML = '<div class="e-url">' + escapeHtml(url) + '</div><div>' + escapeHtml(msg) + '</div>';
+    reportsContainer.insertBefore(box, reportsContainer.firstChild);
+  }
+
+  async function runScan(){
+    clearMsg();
+    var key = apiKeyInput.value.trim();
+    var raw = urlInput.value.trim();
+
+    if(!key){ showMsg('Enter your VirusTotal API key first.'); apiKeyInput.focus(); return; }
+    if(!raw){ showMsg('Enter at least one URL to scan.'); urlInput.focus(); return; }
+
+    var urls = raw.split('\n').map(function(s){ return s.trim(); }).filter(Boolean).map(normalizeUrl);
+    // de-duplicate while preserving order
+    urls = urls.filter(function(u, i){ return urls.indexOf(u) === i; });
+
+    scanBtn.disabled = true;
+    try{
+      for(var i = 0; i < urls.length; i++){
+        var url = urls[i];
+        setQueue('Scanning ' + (i+1) + ' of ' + urls.length + ': ' + url);
+        try{
+          var result = await scanOne(url, key);
+          var card = buildCard(url, result.urlId, result.data.attributes, false);
+          reportsContainer.insertBefore(card, reportsContainer.firstChild);
+
+          var stats = result.data.attributes.last_analysis_stats || {};
+          addHistoryEntry({
+            url: url,
+            urlId: result.urlId,
+            verdict: categorize(stats),
+            scannedAt: result.data.attributes.last_analysis_date || Math.floor(Date.now()/1000),
+            attrs: result.data.attributes
+          });
+        } catch(err){
+          if(err instanceof TypeError){
+            showMsg('Could not reach the local proxy server. Make sure "node server.js" is running, then reload this page.');
+            break;
+          }
+          renderError(url, err);
+        }
+
+        if(i < urls.length - 1){
+          setQueue('Waiting to respect VirusTotal\'s rate limit… next scan shortly');
+          await sleep(16000);
+        }
+      }
+    } finally {
+      setQueue(null);
+      scanBtn.disabled = false;
+    }
+  }
+
+  scanBtn.addEventListener('click', runScan);
+
+})();
+</script>
+</body>
+</html>
